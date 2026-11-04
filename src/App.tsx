@@ -891,7 +891,11 @@ const backdrop = backdropOf({ wpCur, custom: customWallpaper })
       <SvgSprite />
       <BootUpdate />
       <Welcome />
-      <div className="window" id="win">
+      <div
+  className="window"
+  id="win"
+  style={backdrop ? { backgroundImage: `url("${backdrop}")`, backgroundSize: 'cover', backgroundPosition: 'center' } : undefined}
+>
         <Titlebar />
         <UpdateBanner />
 
