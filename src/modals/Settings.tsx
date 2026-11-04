@@ -1,3 +1,4 @@
+import { t, useT } from '../i18n'
 import { useEffect, useState } from 'react'
 import { useLayout, type Layout } from '../state/layout'
 import { NAV_OPTIONS, useNavigation } from '../state/navigation'
@@ -84,7 +85,15 @@ import { STILLS } from '../lib/wallpaper'
 import { useWallpaper } from '../state/wallpaper'
 import { TAB_MS_DEFAULT, useViewPrefs } from '../state/viewPrefs'
 import type { PerfMode } from '../state/viewPrefs'
+function onlyApp(action: string): boolean {
+  if (hasTauri()) return false
+  showToast(`${action}: доступно только в установленном приложении`, 'error')
+  return true
+}
 
+function trackFailure(area: string, error: unknown, meta?: Record<string, string | number | boolean>) {
+  console.error('[settings failure]', area, meta ?? {}, error)
+}
 /* ============================================================
    НАСТРОЙКИ — упрощены 23.09.2026 по правкам владельца:
    «вместо тем — цвет кнопок», «не левая панель — сверху кнопки»,
