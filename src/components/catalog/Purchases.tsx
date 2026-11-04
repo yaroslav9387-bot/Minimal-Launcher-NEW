@@ -49,7 +49,7 @@ export function PurchasesPane({ onOpenPack }: { onOpenPack?: (slug: string) => b
   if (!signed)
     return (
       <CatalogNotice
-        note={{ icon: 'i-wallet', title: t('Покупки — в аккаунте Millida'), action: { label: t('Войти'), primary: true, onClick: () => openAccountAdd('millida') } }}
+        note={{ icon: 'i-wallet', title: t('Покупки — в аккаунте Millida'), action: { label: t('Войти'), primary: true, onClick: () => openAccountAdd() } }}
       />
     )
   if (failed && !(rows && rows.length))
