@@ -475,12 +475,42 @@ export function Settings({ on }: { on: boolean }) {
                 ['auto', t('Авто')],
                 ['high', t('Полное')],
                 ['low', t('Слабый ПК')],
+                    <A11yRows />
+
+      <Block keys="анимация движение персонаж танцует фон переход между вкладками скорость плавность оптимизация качество слабый пк производительность лаги fps">
+        <Group title={t('Анимация')}>
+          <Row title={t('Оптимизация')} keys="оптимизация качество слабый пк производительность лаги fps плавность">
+            <Segs<PerfMode>
+              value={perf}
+              options={[
+                ['auto', t('Авто')],
+                ['high', t('Полное')],
+                ['low', t('Слабый ПК')],
               ]}
               onPick={(v) => useViewPrefs.getState().setPerf(v)}
             />
           </Row>
           <Row title={t('Персонаж танцует')} keys="персонаж анимация танец движение">
             <Toggle label={t('Персонаж танцует')} on={charAnim} onChange={() => useViewPrefs.getState().setCharAnim(!charAnim)} />
+          </Row>
+          <Row title={t('Живой фон')} keys="фон анимация сцена лобби волна искры">
+            <Toggle label={t('Живой фон')} on={bgAnim} onChange={() => useViewPrefs.getState().setBgAnim(!bgAnim)} />
+          </Row>
+          <AmbienceRows />
+          <Row title={t('Переход между вкладками')} keys="переход вкладки скорость длительность плавность анимация">
+            <Segs<number>
+              value={tabMs}
+              options={[
+                [0, t('Выкл')],
+                [190, t('Быстро')],
+                [TAB_MS_DEFAULT, t('Обычно')],
+                [640, t('Медленно')],
+              ]}
+              onPick={(v) => useViewPrefs.getState().setTabMs(v)}
+            />
+          </Row>
+        </Group>
+      </Block>
           </Row>
           <Row title={t('Живой фон')} keys="фон анимация сцена лобби волна искры">
             <Toggle label={t('Живой фон')} on={bgAnim} onChange={() => useViewPrefs.getState().setBgAnim(!bgAnim)} />
