@@ -432,7 +432,7 @@ function Gate() {
   return (
     <div className="ml-state">
       <Milli size={136} mode="wave" />
-      <button type="button" className="btn lg primary" data-track="milli_login" onClick={() => openAccountAdd('millida')}>
+      <button type="button" className="btn lg primary" data-track="milli_login" onClick={() => openAccountAdd()}>
         <PxIcon name="login" size={12} />
         {t('Войти')}
       </button>
