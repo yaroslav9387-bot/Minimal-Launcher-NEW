@@ -336,8 +336,9 @@ export function App() {
   const projectMounted = useEverTrue(useUi((s) => s.modals.pjModal.open || s.modals.pjModal.vis))
   const newBuildMounted = useEverTrue(useUi((s) => s.modals.nbModal.open || s.modals.nbModal.vis))
   const onboardingMounted = useEverTrue(useOnboarding((s) => s.open))
-  const wallpaper = useWallpaper((s) => ({ wpCur: s.wpCur, custom: s.custom }))
-  const backdrop = backdropOf(wallpaper)
+  const wpCur = useWallpaper((s) => s.wpCur)
+const customWallpaper = useWallpaper((s) => s.custom)
+const backdrop = backdropOf({ wpCur, custom: customWallpaper })
   useEffect(() => {
     // The standalone shell exposes only implemented local screens. This also
     // catches stale deep links and old saved screen IDs after an upgrade.
