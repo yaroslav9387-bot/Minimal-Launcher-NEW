@@ -54,7 +54,7 @@ import { refreshGameNick } from './state/gameNick'
 import { Guard } from './components/Guard'
 import { useUi, closeModal, setScreen as gotoScreen, showToast } from './state/ui'
 import { modalToClose, openLayers } from './lib/escClose'
-import { useWallpaper } from './state/wallpaper'
+import { useWallpaper, backdropOf } from './state/wallpaper'
 import { appendChatMessage, applyChatMessage, applyTypingPush, loadFriends, openRoomChat, useFriends } from './state/friends'
 import { bumpRoom, loadRooms, nickInRooms, roomById, useRooms, type VoiceMember } from './state/rooms'
 import type {
@@ -336,7 +336,8 @@ export function App() {
   const projectMounted = useEverTrue(useUi((s) => s.modals.pjModal.open || s.modals.pjModal.vis))
   const newBuildMounted = useEverTrue(useUi((s) => s.modals.nbModal.open || s.modals.nbModal.vis))
   const onboardingMounted = useEverTrue(useOnboarding((s) => s.open))
-
+  const wallpaper = useWallpaper((s) => ({ wpCur: s.wpCur, custom: s.custom }))
+  const backdrop = backdropOf(wallpaper)
   useEffect(() => {
     // The standalone shell exposes only implemented local screens. This also
     // catches stale deep links and old saved screen IDs after an upgrade.
