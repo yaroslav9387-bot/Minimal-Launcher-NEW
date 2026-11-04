@@ -42,7 +42,6 @@ import { openMcNews } from '../components/McNews'
 import { A11yRows } from '../components/A11yRows'
 import { uiChoice, uiConfirm } from '../state/confirm'
 import { ColorPicker } from '../components/ColorPicker'
-import { AppIconPicker } from '../components/AppIconPicker'
 import { AudioSettings } from '../components/AudioSettings'
 import { RewindClips } from '../components/RewindClips'
 import { MusicPlayer, RadioCredits } from '../components/radio'
@@ -465,9 +464,6 @@ export function Settings({ on }: { on: boolean }) {
 
            <Block keys="иконка приложения значок ярлык док панель задач искра пламя аметист легенда золото алмаз">
         <Group title={t('Иконка приложения')}>
-          <AppIconPicker />
-        </Group>
-      </Block>
       <A11yRows />
 
       <Block keys="анимация движение персонаж танцует фон переход между вкладками скорость плавность оптимизация качество слабый пк производительность лаги fps">
