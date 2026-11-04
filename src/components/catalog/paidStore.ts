@@ -110,7 +110,7 @@ export async function loadPurchases(): Promise<void> {
 export async function requireMillida(): Promise<boolean> {
   if (hasMillidaAccount()) return true
   if (await uiConfirm(t('Покупки и доступ хранятся в аккаунте Millida.'), { title: t('Войди в Millida'), confirmLabel: t('Войти'), danger: false })) {
-    openAccountAdd('millida')
+    openAccountAdd()
   }
   return false
 }
