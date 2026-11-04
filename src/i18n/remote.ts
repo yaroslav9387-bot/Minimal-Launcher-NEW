@@ -9,7 +9,6 @@ import { placeholdersOf, type Table } from './core'
 
 export const I18N_TAG = 'millida-launcher-i18n/1'
 const I18N_API = 1
-const OFF_KEY = 'm-i18n-remote'
 const CACHE_PREFIX = 'm-i18n-fix:'
 const CHECKED_PREFIX = 'm-i18n-checked:'
 const CHECK_EVERY_MS = 6 * 60 * 60 * 1000
