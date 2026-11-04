@@ -17,11 +17,8 @@ export const REMOTE_UI_API = 1
 const MANIFEST_TAG = 'millida-launcher-ui/1'
 // Website screens are on for everyone. 'm-remote-ui-off' = '1' is a local escape hatch; the site turns them off
 // for all launchers with "off": true in the manifest (see downloadBundle), retried after OFF_RETRY_MS.
-const OFF_KEY = 'm-remote-ui-off'
 const SITE_OFF_KEY = 'm-remote-ui-site-off'
 const OFF_RETRY_MS = 30 * 60 * 1000
-const BAD_KEY = 'm-remote-ui-bad'
-
 export interface RemoteUiChunk {
   file: string
   sha256: string
