@@ -152,7 +152,7 @@ export function Welcome() {
         {first && phase === 'in' ? <Burst n={30} spread={320} seed={9} /> : null}
         <img className="welcome-logo" src="/minimal-logo.svg" alt="" />
         <span className="welcome-hi">{first ? t('Добро пожаловать') : t('С возвращением,')}</span>
-        <b className="welcome-nick">{first ? t('в Millida') : nick || t('игрок')}</b>
+        <b className="welcome-nick">{first ? 'Minimal Launcher' : nick || t('игрок')}</b>
         {gift ? (
           <div className="welcome-gift sh-card is-show" {...rarityProps(gift.item.rarity)}>
             <RarityFx />
