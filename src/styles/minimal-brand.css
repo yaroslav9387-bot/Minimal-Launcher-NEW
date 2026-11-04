@@ -1,4 +1,3 @@
-
 /* Minimal Launcher — independent graphite / amber visual identity */
 :root {
   --m-bg:#090a0c;
@@ -28,10 +27,25 @@
   --m-shadow-md:0 10px 28px rgba(0,0,0,.28);
   --m-shadow-lg:0 24px 70px rgba(0,0,0,.46);
 }
-html,body,#root { background:#090a0c; }
-body { letter-spacing:.005em; }
-button,.btn,.nav-item,.card,.build-card,.mod-card { transition:background-color .18s ease,border-color .18s ease,transform .18s ease,box-shadow .18s ease; }
-.app { background:#090a0c; gap:14px; }
+
+html,body,#root {
+  background:#090a0c;
+}
+
+body {
+  letter-spacing:.005em;
+}
+
+button,.btn,.nav-item,.card,.build-card,.mod-card {
+  transition:background-color .18s ease,border-color .18s ease,transform .18s ease,box-shadow .18s ease;
+}
+
+/* Исправлено: фон приложения прозрачный для отображения обоев */
+.app {
+  background:transparent;
+  gap:14px;
+}
+
 .sidebar {
   background:linear-gradient(180deg,#111419 0%,#0c0e12 100%);
   border:1px solid rgba(255,255,255,.065);
@@ -39,15 +53,30 @@ button,.btn,.nav-item,.card,.build-card,.mod-card { transition:background-color 
   box-shadow:0 16px 45px rgba(0,0,0,.22);
   overflow:hidden;
 }
-.nav-item { border-radius:9px; margin:3px 8px; }
-.nav-item:hover { background:#20242b; }
+
+.nav-item {
+  border-radius:9px;
+  margin:3px 8px;
+}
+
+.nav-item:hover {
+  background:#20242b;
+}
+
 .nav-item.active,.nav-item.on {
   background:rgba(117,216,121,.12)!important;
   color:#ffd24d!important;
   box-shadow:inset 3px 0 #75d879;
 }
-.content { background:transparent; }
-.topbar,.titlebar,.tb-tabs { border-color:var(--m-border)!important; }
+
+.content {
+  background:transparent;
+}
+
+.topbar,.titlebar,.tb-tabs {
+  border-color:var(--m-border)!important;
+}
+
 .btn.primary,.btn.accent,.play-btn,.big-play,.mini-play {
   background:linear-gradient(110deg,#ffb900,#ffdb60)!important;
   color:#071109!important;
@@ -56,32 +85,63 @@ button,.btn,.nav-item,.card,.build-card,.mod-card { transition:background-color 
   font-weight:850!important;
   box-shadow:0 8px 24px rgba(78,190,91,.17);
 }
+
 .btn.primary:hover,.btn.accent:hover,.play-btn:hover,.big-play:hover,.mini-play:hover {
   transform:translateY(-1px);
   box-shadow:0 12px 30px rgba(78,190,91,.25);
 }
-button:not(.primary):not(.accent):hover { border-color:rgba(117,216,121,.3); }
+
+button:not(.primary):not(.accent):hover {
+  border-color:rgba(117,216,121,.3);
+}
+
 input,select,textarea,.input {
   background:#0c0f13!important;
   border-color:rgba(255,255,255,.1)!important;
   border-radius:9px!important;
 }
-input:focus,select:focus,textarea:focus { border-color:#75d879!important; outline-color:rgba(117,216,121,.18)!important; }
+
+input:focus,select:focus,textarea:focus {
+  border-color:#75d879!important;
+  outline-color:rgba(117,216,121,.18)!important;
+}
+
 .card,.build-card,.mod-card,.panel,.modal,.popover,.menu {
   border-radius:14px!important;
   border-color:rgba(255,255,255,.075)!important;
   box-shadow:0 8px 28px rgba(0,0,0,.18);
 }
-:root.lay-classic .sidebar { border-radius:16px; }
+
+:root.lay-classic .sidebar {
+  border-radius:16px;
+}
+
 :root.lay-classic #s-home .ch-stage {
   border-radius:18px;
   clip-path:none;
   border:1px solid rgba(255,255,255,.08);
   background:radial-gradient(ellipse at 72% 22%,rgba(78,190,91,.10),transparent 36%),#0c0f13;
 }
-:root.lay-classic .content { padding-top:10px; }
-::-webkit-scrollbar-thumb { background:rgba(117,216,121,.28); }
-::selection { background:rgba(117,216,121,.3); color:#fff; }
+
+:root.lay-classic .content {
+  padding-top:10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background:rgba(117,216,121,.28);
+}
+
+::selection {
+  background:rgba(117,216,121,.3);
+  color:#fff;
+}
+
 /* Remove the old pixel-cut visual language in the app shell. */
-:root { --px-4:none; --px-10:none; }
-.sidebar,.sidebar * { image-rendering:auto; }
+:root {
+  --px-4:none;
+  --px-10:none;
+}
+
+.sidebar,.sidebar * {
+  image-rendering:auto;
+}
