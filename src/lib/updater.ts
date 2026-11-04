@@ -1,0 +1,555 @@
+// Launcher update. The check goes through the Tauri plugin. The version list address and the public part of the signing key are set in tauri.conf.json.
+// Standalone fork: update checks remain disabled until the project has its own endpoint and signing key.
+import { check, type Update } from '@tauri-apps/plugin-updater'
+import { exit, relaunch } from '@tauri-apps/plugin-process'
+import { hasTauri, tauri } from '../ipc/tauri'
+import {
+  appVersion,
+  isFlatpak,
+  showAfterUpdate,
+  updateFallbackCheck,
+  updateFallbackRun,
+  updateFallbackStage,
+  type FallbackUpdate,
+} from '../ipc/commands'
+import { readPref } from './prefs'
+import { showToast } from '../state/ui'
+import { useUpdate } from '../state/update'
+import { openExt } from './api'
+import { reportError } from './crash'
+import { cancelAppExit, trackAppExit, trackFailure } from './telemetry'
+import { t, tx } from '../i18n'
+
+export interface UpdateInfo {
+  version: string
+  notes: string
+  install: () => Promise<void>
+}
+
+export const DOWNLOAD_PAGE = 'https://github.com/yaroslav9387-bot/Minimal-Launcher-Standalone/releases'
+
+const FAILED_KEY = 'm-upd-failed'
+const BOOT_KEY = 'm-upd-boot'
+const BOOT_TRIES = 2
+const PROBE_EVERY = 1800000
+
+let pending: UpdateInfo | null = null
+let current: Update | null = null
+let downloading: Promise<void> | null = null
+let downloaded = false
+let installing = false
+let fallback: FallbackUpdate | null = null
+let fallbackFile: string | null = null
+let fallbackStaging: Promise<string | null> | null = null
+let lastProbe = 0
+
+export const pendingUpdate = () => pending
+export const updateReady = () => (downloaded && !!current) || !!fallbackFile
+
+/// Сбой обновления: отчёт в /errors и событие телеметрии; если выход уже
+/// записан перед установкой — он не случился.
+function updateFailed(where: string, e: unknown) {
+  cancelAppExit()
+  void reportError(where, e)
+  trackFailure('updater', e, { step: where })
+}
+
+// A fork must never install binaries from the upstream Millida release channel.
+// Re-enable only after configuring a project-owned endpoint and signing key.
+const updatesAllowed = () => false
+
+/// Flatpak updates itself and mounts /app read-only, so the fallback channel cannot install there.
+let managedOutside: boolean | null = null
+
+async function updatesManagedOutside(): Promise<boolean> {
+  if (managedOutside === null) managedOutside = await isFlatpak().catch(() => false)
+  return managedOutside
+}
+
+async function updatesReady(): Promise<boolean> {
+  return updatesAllowed() && !(await updatesManagedOutside())
+}
+
+const FLATPAK_UPDATE_COMMAND = 'flatpak update net.minimal.launcher'
+
+async function managedOutsideOnly(): Promise<boolean> {
+  return updatesAllowed() && (await updatesManagedOutside())
+}
+
+/// Flatpak cannot install anything itself, but the player still has to learn
+/// that a new version is out: otherwise the launcher silently stays behind.
+async function noticeManagedUpdate(): Promise<FallbackUpdate | null> {
+  try {
+    const upd = await updateFallbackCheck()
+    if (!upd) return null
+    pending = { version: upd.version, notes: upd.notes || '', install: async () => applyUpdate() }
+    useUpdate.getState().set({ version: upd.version, staged: false, manual: true, failed: true })
+    return upd
+  } catch (e) {
+    updateFailed('updater-flatpak', e)
+    return null
+  }
+}
+
+function showManagedUpdateHint() {
+  const version = useUpdate.getState().version
+  showToast(
+    (version ? t('Вышла версия {version}.', { version }) + ' ' : '') +
+      t('Обнови лаунчер в магазине приложений или командой: {command}', { command: FLATPAK_UPDATE_COMMAND }),
+  )
+}
+
+/// The Update object is reused for the same version: rebuilding it under an in-flight download
+/// fails with "Update.install called before Update.download".
+function remember(upd: Update) {
+  if (current && current.version === upd.version && (downloaded || downloading)) return
+  current = upd
+  downloading = null
+  downloaded = false
+  useUpdate.getState().set({ version: upd.version, staged: false, manual: false, failed: false })
+  pending = { version: upd.version, notes: upd.body || '', install: async () => applyUpdate() }
+}
+
+function ensureDownloaded(): Promise<Update> {
+  if (!current) return Promise.reject(new Error(t('нет обновления')))
+  const upd = current
+  if (downloaded) return Promise.resolve(upd)
+  if (!downloading) {
+    downloading = upd.download().then(() => {
+      downloaded = true
+      useUpdate.getState().set({ staged: true })
+    })
+  }
+  return downloading.then(() => upd)
+}
+
+async function quit(): Promise<void> {
+  trackAppExit()
+  try {
+    await exit(0)
+  } catch {
+    const T = tauri()
+    const w = T && T.window ? T.window.getCurrentWindow() : null
+    if (w && w.destroy) await w.destroy().catch(() => {})
+  }
+}
+
+/// An installer that cannot replace the exe (antivirus, foreign install folder) leaves the old
+/// version in place, and every start would install and relaunch again without end.
+function bootTriesSpent(target: string): boolean {
+  try {
+    const raw = JSON.parse(localStorage.getItem(BOOT_KEY) || 'null') as { target?: string; n?: number } | null
+    return !!raw && raw.target === target && (raw.n || 0) >= BOOT_TRIES
+  } catch {
+    return false
+  }
+}
+
+function noteBootTry(target: string) {
+  try {
+    const raw = JSON.parse(localStorage.getItem(BOOT_KEY) || 'null') as { target?: string; n?: number } | null
+    const n = raw && raw.target === target ? (raw.n || 0) + 1 : 1
+    localStorage.setItem(BOOT_KEY, JSON.stringify({ target, n }))
+  } catch {}
+}
+
+function markPluginFailed(version: string) {
+  try {
+    localStorage.setItem(FAILED_KEY, version)
+  } catch {}
+}
+
+/// The plugin reads one endpoint baked into the build, so a tester cannot be
+/// pointed at the testing manifest through it. The core's own channel reads both
+/// manifests and verifies each with the same key, so testers go that way.
+export function betaChannel(): boolean {
+  return readPref('m-beta', '') === '1'
+}
+
+async function pluginGaveUp(): Promise<boolean> {
+  if (betaChannel()) return true
+  let target: string | null = null
+  try {
+    target = localStorage.getItem(FAILED_KEY)
+  } catch {}
+  if (!target) return false
+  const cur = await appVersion().catch(() => '')
+  if (cur && cur === target) {
+    try {
+      localStorage.removeItem(FAILED_KEY)
+    } catch {}
+    return false
+  }
+  return true
+}
+
+async function probeFallback(): Promise<FallbackUpdate | null> {
+  if (!(await updatesReady())) return null
+  lastProbe = Date.now()
+  try {
+    const upd = await updateFallbackCheck()
+    if (!upd) return null
+    if (!fallback || fallback.version !== upd.version) {
+      fallback = upd
+      fallbackFile = null
+      fallbackStaging = null
+    }
+    pending = { version: upd.version, notes: upd.notes || '', install: async () => applyFallback() }
+    useUpdate.getState().set({ version: upd.version, staged: !!fallbackFile, manual: true, failed: false })
+    void stageFallback().catch(() => {})
+    return upd
+  } catch (e) {
+    updateFailed('updater-fallback', e)
+    return null
+  }
+}
+
+function stageFallback(): Promise<string | null> {
+  if (fallbackFile) return Promise.resolve(fallbackFile)
+  if (!fallbackStaging) {
+    fallbackStaging = updateFallbackStage()
+      .then((res) => {
+        fallbackFile = res ? res.path : null
+        if (res) useUpdate.getState().set({ version: res.version, staged: true, manual: true })
+        return fallbackFile
+      })
+      .catch((e) => {
+        fallbackStaging = null
+        updateFailed('updater-fallback', e)
+        throw e
+      })
+  }
+  return fallbackStaging
+}
+
+const BOOT_CHECK_TIMEOUT = 5000
+
+/// Gatekeeper runs a .app opened straight from the DMG out of a throwaway copy, so no update can
+/// ever stick until the user moves it to Applications: retrying only burns the download again.
+const TRANSLOCATED_RE = /запущен из образа/i
+
+function noticeIfTranslocated(e: unknown): boolean {
+  if (!TRANSLOCATED_RE.test(String(e))) return false
+  showToast(t('Лаунчер запущен из образа. Перенеси Minimal Launcher в «Программы» — иначе обновления не установятся'), 'error')
+  return true
+}
+
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | null> {
+  return Promise.race([p, new Promise<null>((res) => setTimeout(() => res(null), ms))])
+}
+
+/// The plugin reports every chunk, so silence this long means a stalled connection. The fallback
+/// channel reports nothing while it downloads and gets a flat limit instead.
+const BOOT_STALL_MS = 45_000
+const BOOT_FALLBACK_LIMIT_MS = 180_000
+
+export type BootLeave = 'skipped' | 'stalled'
+
+let leaveBoot: ((why: BootLeave) => void) | null = null
+
+/// «Продолжить без обновления» on the boot screen: the screen covers the whole window, and a
+/// download that never ends used to leave no way into the launcher at all.
+export function skipBootUpdate() {
+  leaveBoot?.('skipped')
+}
+
+/// A way out of a boot download: the player's button, or `quietMs` with no sign of life.
+function bootEscape(quietMs: number): { left: Promise<BootLeave>; alive: () => void; done: () => void } {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let leave: (why: BootLeave) => void = () => {}
+  const left = new Promise<BootLeave>((res) => {
+    leave = res
+  })
+  const alive = () => {
+    clearTimeout(timer)
+    timer = setTimeout(() => leave('stalled'), quietMs)
+  }
+  leaveBoot = leave
+  alive()
+  return {
+    left,
+    alive,
+    done: () => {
+      clearTimeout(timer)
+      leaveBoot = null
+    },
+  }
+}
+
+/// Applied at startup, before the launcher UI opens: on Windows the installer terminates the
+/// running process, so it cannot be applied mid-session. Returns true when the install started.
+export async function bootUpdate(): Promise<boolean> {
+  if (await managedOutsideOnly()) {
+    void noticeManagedUpdate()
+    return false
+  }
+  if (!(await updatesReady())) return false
+  const st = useUpdate.getState()
+  st.set({ bootPhase: 'checking', bootPct: 0 })
+  try {
+    if (await pluginGaveUp()) {
+      const f = await withTimeout(probeFallback(), BOOT_CHECK_TIMEOUT)
+      if (!f) {
+        st.set({ bootPhase: 'idle' })
+        return false
+      }
+      if (bootTriesSpent('fallback:' + f.version)) {
+        st.set({ bootPhase: 'idle' })
+        useUpdate.getState().set({ failed: true })
+        return false
+      }
+      st.set({ bootPhase: 'downloading', version: f.version })
+      const esc = bootEscape(BOOT_FALLBACK_LIMIT_MS)
+      const staging = stageFallback()
+      const staged = await Promise.race([staging, esc.left]).finally(esc.done)
+      if (staged === 'skipped' || staged === 'stalled') {
+        // Staging goes on in the background and the update installs on exit.
+        staging.catch(() => {})
+        if (staged === 'stalled') noteBootTry('fallback:' + f.version)
+        st.set({ bootPhase: 'idle' })
+        return false
+      }
+      const file = staged
+      if (!file) throw new Error(t('нет файла обновления'))
+      st.set({ bootPhase: 'installing' })
+      noteBootTry('fallback:' + f.version)
+      const res = await updateFallbackRun(file)
+      if (!res.started) throw new Error(t('установщик не запустился'))
+      await quit()
+      return true
+    }
+
+    const upd = await withTimeout(check(), BOOT_CHECK_TIMEOUT)
+    if (!upd) {
+      st.set({ bootPhase: 'idle' })
+      return false
+    }
+    remember(upd)
+    if (bootTriesSpent(upd.version)) {
+      markPluginFailed(upd.version)
+      st.set({ bootPhase: 'idle' })
+      void autoUpdate()
+      return false
+    }
+    st.set({ bootPhase: 'downloading', version: upd.version, bootPct: 0 })
+    let total = 0
+    let got = 0
+    const esc = bootEscape(BOOT_STALL_MS)
+    const fetching = upd
+      .download((e) => {
+        esc.alive()
+        if (e.event === 'Started') total = e.data.contentLength || 0
+        else if (e.event === 'Progress') {
+          got += e.data.chunkLength || 0
+          if (total) useUpdate.getState().set({ bootPct: Math.min(99, Math.round((got / total) * 100)) })
+        }
+      })
+      .then(() => {
+        downloaded = true
+      })
+    downloading = fetching
+    const left = await Promise.race([fetching.then(() => null), esc.left]).finally(esc.done)
+    if (left) {
+      // The same download goes on in the background and installs on exit, like an update found mid-session.
+      fetching
+        .then(() => useUpdate.getState().set({ staged: true }))
+        .catch((e) => {
+          downloading = null
+          updateFailed('updater-boot', e)
+        })
+      if (left === 'stalled') noteBootTry(upd.version)
+      useUpdate.getState().set({ bootPhase: 'idle' })
+      return false
+    }
+    installing = true
+    useUpdate.getState().set({ bootPhase: 'installing', bootPct: 100 })
+    trackAppExit()
+    noteBootTry(upd.version)
+    await upd.install()
+    await relaunch()
+    return true
+  } catch (e) {
+    installing = false
+    downloading = null
+    useUpdate.getState().set({ bootPhase: 'idle' })
+    if (noticeIfTranslocated(e)) return false
+    updateFailed('updater-boot', e)
+    if (current) markPluginFailed(current.version)
+    void autoUpdate()
+    return false
+  }
+}
+
+/// Otherwise installed on exit: a background install would kill the running process.
+export async function autoUpdate(): Promise<{ version: string } | null> {
+  if (await managedOutsideOnly()) {
+    const f = await noticeManagedUpdate()
+    return f ? { version: f.version } : null
+  }
+  if (!(await updatesReady())) return null
+  if (await pluginGaveUp()) {
+    const f = await probeFallback()
+    return f ? { version: f.version } : null
+  }
+  try {
+    const upd = await check()
+    if (!upd) {
+      if (Date.now() - lastProbe > PROBE_EVERY) {
+        const f = await probeFallback()
+        if (f) return { version: f.version }
+      }
+      return null
+    }
+    remember(upd)
+    await ensureDownloaded()
+    return { version: upd.version }
+  } catch (e) {
+    downloading = null
+    updateFailed('updater', e)
+    const f = await probeFallback()
+    return f ? { version: f.version } : null
+  }
+}
+
+export async function installUpdateOnExit(): Promise<boolean> {
+  if (installing) return false
+  if (fallbackFile) {
+    installing = true
+    useUpdate.getState().set({ busy: true })
+    showToast(t('Ставим обновление {version}…', { version: fallback ? fallback.version : '' }))
+    try {
+      await updateFallbackRun(fallbackFile, false)
+    } catch (e) {
+      updateFailed('updater-fallback', e)
+    }
+    await quit()
+    return true
+  }
+  if (!downloaded || !current) return false
+  installing = true
+  useUpdate.getState().set({ busy: true })
+  showToast(t('Ставим обновление {version}…', { version: useUpdate.getState().version || '' }))
+  try {
+    await current.install({ restartAfterInstall: false })
+  } catch (e) {
+    markPluginFailed(current.version)
+    updateFailed('updater', e)
+  }
+  await quit()
+  return true
+}
+
+export async function applyFallback(): Promise<void> {
+  const st = useUpdate.getState()
+  if (st.busy) return
+  st.set({ busy: true, manual: true })
+  if (!fallbackFile) showToast(t('Качаем обновление {version}…', { version: st.version || '' }))
+  try {
+    const file = await stageFallback()
+    if (!file) throw new Error(t('нет файла обновления'))
+    const res = await updateFallbackRun(file)
+    if (res.started) {
+      await quit()
+      return
+    }
+    st.set({ busy: false })
+    showToast(
+      /\.(deb|rpm)$/i.test(res.path)
+        ? t('Обновление скачано — подтверди установку в открывшемся установщике пакетов')
+        : t('Обновление скачано — замени приложение файлом из открытой папки'),
+    )
+  } catch (e) {
+    st.set({ busy: false, failed: true })
+    if (noticeIfTranslocated(e)) return
+    updateFailed('updater-fallback', e)
+    showToast(t('Обновиться не вышло: {error}', { error: tx(e) }), 'error')
+  }
+}
+
+export async function applyUpdate(): Promise<void> {
+  const st = useUpdate.getState()
+  if (st.busy) return
+  if (await managedOutsideOnly()) {
+    showManagedUpdateHint()
+    return
+  }
+  if (st.failed) {
+    st.set({ failed: false })
+    if (fallback || (await probeFallback())) {
+      await applyFallback()
+      if (!useUpdate.getState().failed) return
+    }
+    showToast(t('Автоматически обновиться не вышло — скачай установщик на открывшейся странице и запусти его поверх'), 'error')
+    openExt(DOWNLOAD_PAGE)
+    return
+  }
+  if (!current || st.manual) {
+    if (!fallback && !(await probeFallback())) {
+      showToast(t('Обновление недоступно — скачай лаунчер с сайта'), 'error')
+      st.set({ failed: true })
+      return
+    }
+    await applyFallback()
+    return
+  }
+  st.set({ busy: true })
+  try {
+    if (!downloaded) showToast(t('Качаем обновление {version}…', { version: st.version || '' }))
+    const upd = await ensureDownloaded()
+    await showAfterUpdate().catch((e) => void reportError('updater-show-after-update', e))
+    installing = true
+    trackAppExit()
+    await upd.install()
+    await relaunch()
+  } catch (e) {
+    installing = false
+    st.set({ busy: false })
+    markPluginFailed(current.version)
+    updateFailed('updater', e)
+    showToast(t('Ставим запасным способом…'))
+    if (await probeFallback()) await applyFallback()
+    else {
+      st.set({ failed: true })
+      showToast(t('Не удалось обновиться: {error}', { error: tx(e) }), 'error')
+    }
+  }
+}
+
+export async function checkForUpdate(loud = false): Promise<UpdateInfo | null> {
+  if (!updatesAllowed()) {
+    if (loud) showToast(hasTauri() ? t('В дев-запуске обновления отключены') : t('Обновления доступны в приложении лаунчера'), 'error')
+    return null
+  }
+  if (await updatesManagedOutside()) {
+    const f = await noticeManagedUpdate()
+    if (f && loud) showManagedUpdateHint()
+    else if (loud) showToast(t('Установлена последняя версия'))
+    return f ? pending : null
+  }
+  try {
+    if (await pluginGaveUp()) {
+      const f = await probeFallback()
+      if (!f && loud) showToast(t('Установлена последняя версия'))
+      return pending
+    }
+    const upd = await check()
+    if (!upd) {
+      const f = await probeFallback()
+      if (!f && loud) showToast(t('Установлена последняя версия'))
+      return f ? pending : null
+    }
+    if (!current || current.version !== upd.version) remember(upd)
+    void ensureDownloaded().catch((err) => {
+      downloading = null
+      updateFailed('updater', err)
+      void probeFallback()
+    })
+    return pending
+  } catch (e) {
+    updateFailed('updater', e)
+    const f = await probeFallback()
+    if (f) return pending
+    if (loud) showToast(t('Не удалось проверить обновления: {error}', { error: tx(e) }), 'error')
+    return null
+  }
+}
