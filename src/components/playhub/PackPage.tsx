@@ -621,7 +621,7 @@ export function PackPage({
       )
     else if (offer === 'signin')
       arcMain = (
-        <button className="btn lg primary pp-cta" data-sound="open" data-track="arcania_signin" data-src="pack_page" onClick={() => openAccountAdd('millida')}>
+        <button className="btn lg primary pp-cta" data-sound="open" data-track="arcania_signin" data-src="pack_page" onClick={() => openAccountAdd()}>
           <Icon id="i-login" /> {t('Войти')}
         </button>
       )
